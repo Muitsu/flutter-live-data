@@ -4,6 +4,7 @@
 
 import 'dart:developer';
 import 'package:pusher_channels_flutter/pusher_channels_flutter.dart';
+import 'package:http/http.dart' as http;
 
 // A wrapper class to manage the Pusher connection and state.
 class PusherService {
@@ -22,31 +23,64 @@ class PusherService {
   final PusherChannelsFlutter pusher = PusherChannelsFlutter.getInstance();
 
   // Replace with your actual Pusher credentials
-  final String _apiKey = 'YOUR_APP_KEY';
-  final String _cluster = 'YOUR_APP_CLUSTER';
+  String _apiKey = 'YOUR_APP_KEY';
+  String _cluster = 'YOUR_APP_CLUSTER';
 
   var logger = (String msg) => log(name: "PusherService", msg);
 
   // Method to connect to the Pusher with a dynamic channel and event.
+  bool _isConnected = false;
+
   Future<void> connect({
-    required String channelName,
-    required String eventName,
+    required String apiKey,
+    required String cluster,
+    String? authEndpoint,
+    Map<String, String>? headers,
   }) async {
+    if (_isConnected) {
+      logger("Already connected to Pusher.");
+      return;
+    }
+
+    _apiKey = apiKey;
+    _cluster = cluster;
+
     try {
       await pusher.init(
         apiKey: _apiKey,
         cluster: _cluster,
+        authEndpoint: authEndpoint,
+        onAuthorizer: (channelName, socketId, options) async {
+          // Optional: if you need custom auth instead of default
+          // Example: manually POST to your backend
+          final response = await http.post(
+            Uri.parse(authEndpoint!),
+            headers: headers ?? {},
+            body: {"socket_id": socketId, "channel_name": channelName},
+          );
+
+          return response.body; // Must return JSON with "auth"
+        },
         onConnectionStateChange: onConnectionStateChange,
         onError: onError,
         onSubscriptionSucceeded: onSubscriptionSucceeded,
         onEvent: onEvent,
       );
+
       await pusher.connect();
+      _isConnected = true;
       logger('Pusher client connected.');
-    } on Exception catch (e) {
+    } catch (e) {
       logger('PusherService::connect() exception: $e');
-      pusher.disconnect();
+      await pusher.disconnect();
+      _isConnected = false;
     }
+  }
+
+  Future<void> disconnect() async {
+    await pusher.disconnect();
+    _isConnected = false;
+    logger('Pusher client disconnected.');
   }
 
   // Callback for connection state changes.
@@ -72,31 +106,29 @@ class PusherService {
   }
 
   // Method to subscribe to a public channel and bind to an event.
-  Future<void> subscribeToChannel(
-    String channelName,
-    String eventName,
-    Function(PusherEvent event) callback,
-  ) async {
-    await pusher.subscribe(
-      channelName: channelName,
-      onEvent: (event) {
-        if (event.eventName == eventName) {
-          callback(event);
-        }
-      },
-    );
-    logger("Subscribed to channel: $channelName, event: $eventName");
+  Future<void> subscribeToChannel({
+    required String channelName,
+    String? eventName,
+    required Function(PusherEvent event) onListen,
+  }) async {
+    try {
+      await pusher.subscribe(
+        channelName: channelName,
+        onEvent: (event) {
+          if (eventName == null || event.eventName == eventName) {
+            onListen(event);
+          }
+        },
+      );
+      logger("Subscribed to channel: $channelName, event: $eventName");
+    } catch (e) {
+      logger("Already subscribed to a channel with name $channelName");
+    }
   }
 
   // Method to unsubscribe from a channel.
   Future<void> unsubscribeFromChannel(String channelName) async {
     await pusher.unsubscribe(channelName: channelName);
     logger("Unsubscribed from channel: $channelName");
-  }
-
-  // Method to disconnect from the Pusher.
-  Future<void> disconnect() async {
-    await pusher.disconnect();
-    logger('Pusher client disconnected.');
   }
 }

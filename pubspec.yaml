@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   mqtt_client: ^10.11.0
   pusher_channels_flutter: ^2.5.0
+  http: ^1.5.0
 
 dev_dependencies:
   flutter_test:
