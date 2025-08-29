@@ -37,14 +37,27 @@ class WebSocketManager {
   );
 
   // Method to connect to the WebSocket server with a dynamic server address.
-  Future<void> connect({required String serverAddress}) async {
+  Future<void> connect({
+    required String serverAddress,
+    Map<String, String>? headers,
+    Iterable<String>? protocols,
+    bool bypassBadCertificate = false,
+  }) async {
+    HttpClient? client;
     if (connectionStatus.value == 'Connected') {
       logger('WebSocketManager: Already connected.');
       return;
     }
-
+    if (bypassBadCertificate) {
+      client = _badCertificateHandler();
+    }
     try {
-      webSocket = await WebSocket.connect(serverAddress);
+      webSocket = await WebSocket.connect(
+        serverAddress,
+        headers: headers,
+        customClient: client,
+        protocols: protocols,
+      );
       connectionStatus.value = 'Connected';
 
       // Listen for incoming messages.
@@ -77,6 +90,16 @@ class WebSocketManager {
     } else {
       logger('WebSocketManager::Not connected. Cannot send message.');
     }
+  }
+
+  HttpClient _badCertificateHandler() {
+    final client = HttpClient();
+    client.badCertificateCallback =
+        (X509Certificate cert, String host, int port) {
+          logger("⚠️ Ignoring bad certificate from $host");
+          return true;
+        };
+    return client;
   }
 
   // Method to disconnect.
